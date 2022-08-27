@@ -45,7 +45,7 @@ auto to_vec4(const Eigen::Vector3f& v3, float w = 1.0f)
 //     return res;
 // }
 
-static bool insideTriangle(int x, int y, const std::array<Eigen::Matrix<float, 4, 1, 0>, 3> _v)
+static bool insideTriangle(float x, float y, const std::array<Eigen::Matrix<float, 4, 1, 0>, 3> _v)
 {   
     // TODO : Implement this function to check if the point (x, y) is inside the triangle represented by _v[0], _v[1], _v[2]
     Eigen::Vector4f point1, point2, point3, _point;
@@ -132,47 +132,63 @@ void rst::rasterizer::draw(pos_buf_id pos_buffer, ind_buf_id ind_buffer, col_buf
     }
 }
 
-std::map<std::pair<int, int>, float> z_buffer;
-typedef std::pair<int, int> Point;
+std::map<std::pair<float, float>, float> z_buffer;
+typedef std::pair<float, float> Point;
 
-std::map<std::pair<int, int>, Eigen::Vector3f> color_map;
+std::map<std::pair<float, float>, Eigen::Vector3f> color_map;
 
-Eigen::Vector3f super_sampling(int x, int y, Eigen::Vector3f current_color, int cnt = 2) {
-    //return current_color;
+// Eigen::Vector3f super_sampling(int x, int y, Eigen::Vector3f current_color, int cnt = 2) {
+//     //return current_color;
 
-    Eigen::Vector3f color = current_color;
-    for (int i = 0; i < cnt; i++) {
-        for (int j = 0; j < cnt; j++) {
-            if (i == 0 && j == 0) {
-                continue;
-            }
-            Point p (x-i, y-j);
-            Eigen::Vector3f temp_color;
-            if (color_map.find(p) == color_map.end()) {
-                temp_color << 0.0, 0.0, 0.0;
-            } else {
-                temp_color = color_map[p];
-            }
-            color += temp_color;
+//     Eigen::Vector3f color = current_color;
+//     for (int i = 0; i < cnt; i++) {
+//         for (int j = 0; j < cnt; j++) {
+//             if (i == 0 && j == 0) {
+//                 continue;
+//             }
+//             Point p (x-i, y-j);
+//             Eigen::Vector3f temp_color;
+//             if (color_map.find(p) == color_map.end()) {
+//                 temp_color << 0.0, 0.0, 0.0;
+//             } else {
+//                 temp_color = color_map[p];
+//             }
+//             color += temp_color;
             
-            // 不加下面这一段，则超采样只取左下，右上线条不会超采样，仍然有锯齿
-            // 拿右上像素颜色，因为第一次右上都是背景色【黑】所以图像最暗，第二帧会把前一阵颜色和当前像素颜色平均一次，画面会亮一点，每一帧都会更亮一点。
-            Point p2 (x+i, y+j);
-            Eigen::Vector3f temp_color2;
-            if (color_map.find(p2) == color_map.end()) {
-                temp_color2 << 0.0, 0.0, 0.0;
-            } else {
-                temp_color2 = color_map[p2];
-            }
-            color += temp_color2;
-        }
+//             // 不加下面这一段，则超采样只取左下，右上线条不会超采样，仍然有锯齿
+//             // 拿右上像素颜色，因为第一次右上都是背景色【黑】所以图像最暗，第二帧会把前一阵颜色和当前像素颜色平均一次，画面会亮一点，每一帧都会更亮一点。
+//             Point p2 (x+i, y+j);
+//             Eigen::Vector3f temp_color2;
+//             if (color_map.find(p2) == color_map.end()) {
+//                 temp_color2 << 0.0, 0.0, 0.0;
+//             } else {
+//                 temp_color2 = color_map[p2];
+//             }
+//             color += temp_color2;
+//         }
+//     }
+//     int all_cnt = cnt * cnt;
+
+//     // 注意这里是7次，不是9次，有点hard code
+//     auto new_color = color/7;
+//     return new_color;
+
+// }
+
+std::pair<float, float> belong_to(std::pair<float, float> point){
+    int a, b;
+    std::pair<float, float> point_new;
+    if (point.first - int(point.first) > 0.5) {
+        point_new.first = int(point.first) + 1;
+    } else {
+        point_new.first = int(point.first);
     }
-    int all_cnt = cnt * cnt;
-
-    // 注意这里是7次，不是9次，有点hard code
-    auto new_color = color/7;
-    return new_color;
-
+    if (point.second - int(point.second) > 0.5) {
+        point_new.second = int(point.second) + 1;
+    } else {
+        point_new.second = int(point.second);
+    }
+    return point_new;
 }
 
 //Screen space rasterization
@@ -209,8 +225,9 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
         }
     }
 
-    for (double i = l_bound; i <= r_bound; i++) {
-        for (double j = b_bound; j <= t_bound; j++) {
+    // 为了MSAA，一次循环用来算颜色，存进map里, 算出来的颜色仍然需要关心z-buffer
+    for (double i = l_bound - 0.25; i <= r_bound; i += 0.5) {
+        for (double j = b_bound - 0.25; j <= t_bound; j+= 0.5) {
             if (insideTriangle(i, j, v)) {
                 //If so, use the following code to get the interpolated z value.
                 auto[alpha, beta, gamma] = computeBarycentric2D(i, j, t.v);
@@ -224,16 +241,39 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t) {
                 z_interpolated *= w_reciprocal;
                 Point p (i, j);
                 if (z_buffer.find(p) == z_buffer.end() || z_buffer[p] >= z_interpolated) {
-                    auto new_color = super_sampling(i, j, color);
-                    set_pixel(point, new_color);
+                    // auto new_color = super_sampling(i, j, color);
+                    // set_pixel(point, color);
                     //std::cout << new_color[0] << " " << new_color[1] << " " << new_color[2] << std::endl;
-                    color_map[p] = new_color;
+                    color_map[p] = color;
                     z_buffer[p] = z_interpolated;
                 }
             }
         }
     }
-    
+    std::map<std::pair<float, float>, Eigen::Vector3f> global_color_map;
+    // 汇总颜色, 不需要关心z-buffer
+    for (auto it = color_map.begin(); it != color_map.end(); it++) {
+        auto point = it->first;
+        auto color = it->second;
+        auto father_point = belong_to(point);
+        auto new_point_it = global_color_map.find(father_point);
+        if (new_point_it != global_color_map.end()) {
+            auto part_color = color * 0.25 ;
+            new_point_it->second += (part_color);
+        } else {
+            std::pair<std::pair<float, float>, Eigen::Vector3f> item (father_point, color * 0.25);
+            global_color_map.insert(item);
+        }
+    }
+
+    for (auto it = global_color_map.begin(); it != global_color_map.end(); it++) {
+        float x, y;
+        x = it->first.first;
+        y = it->first.second;
+        Eigen::Vector3f point;
+        point << x, y, 1;
+        set_pixel(point, it->second);
+    }
     
 
     // TODO : set the current pixel (use the set_pixel function) to the color of the triangle (use getColor function) if it should be painted.
