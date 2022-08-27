@@ -1,0 +1,3 @@
+/Users/personal/Documents/qingyuaner/graphic_yanlingqi/GAMES101_Homework_S2021/Homework2/Assignment2/build/CMakeFiles/Rasterizer.dir
+/Users/personal/Documents/qingyuaner/graphic_yanlingqi/GAMES101_Homework_S2021/Homework2/Assignment2/build/CMakeFiles/edit_cache.dir
+/Users/personal/Documents/qingyuaner/graphic_yanlingqi/GAMES101_Homework_S2021/Homework2/Assignment2/build/CMakeFiles/rebuild_cache.dir
