@@ -149,7 +149,7 @@ auto to_vec4(const Eigen::Vector3f& v3, float w = 1.0f)
     return Vector4f(v3.x(), v3.y(), v3.z(), w);
 }
 
-static bool insideTriangle(int x, int y, const Vector4f* _v){
+static bool insideTriangle(float x, float y, const Vector4f* _v){
     Vector3f v[3];
     for(int i=0;i<3;i++)
         v[i] = {_v[i].x(),_v[i].y(), 1.0};
@@ -240,6 +240,11 @@ void rst::rasterizer::draw(std::vector<Triangle *> &TriangleList) {
     }
 }
 
+std::map<std::pair<float, float>, float> z_buffer;
+typedef std::pair<float, float> Point;
+
+std::map<std::pair<float, float>, Eigen::Vector3f> color_map;
+
 static Eigen::Vector3f interpolate(float alpha, float beta, float gamma, const Eigen::Vector3f& vert1, const Eigen::Vector3f& vert2, const Eigen::Vector3f& vert3, float weight)
 {
     return (alpha * vert1 + beta * vert2 + gamma * vert3) / weight;
@@ -271,14 +276,103 @@ void rst::rasterizer::rasterize_triangle(const Triangle& t, const std::array<Eig
 
     // TODO: Interpolate the attributes:
     // auto interpolated_color
-    // auto interpolated_normal
+    // auto interpolated_normal 
     // auto interpolated_texcoords
     // auto interpolated_shadingcoords
 
-    // Use: fragment_shader_payload payload( interpolated_color, interpolated_normal.normalized(), interpolated_texcoords, texture ? &*texture : nullptr);
     // Use: payload.view_pos = interpolated_shadingcoords;
     // Use: Instead of passing the triangle's color directly to the frame buffer, pass the color to the shaders first to get the final color;
     // Use: auto pixel_color = fragment_shader(payload);
+
+
+    auto v = t.toVector4();
+
+    float l_bound, r_bound, t_bound, b_bound; 
+    l_bound = DBL_MAX;
+    r_bound = -DBL_MAX;
+    t_bound = -DBL_MAX;
+    b_bound = DBL_MAX;
+    for (auto it = v.begin(); it != v.end(); it ++) {
+        Eigen::Vector4f point;
+        point = *it;
+        float x;
+        x = point[0];
+        float y;
+        y = point[1];
+        if (x > r_bound) {
+            r_bound = ceil(x);
+        }
+        if (x < l_bound) {
+            l_bound = floor(x);
+        }
+        if (y > t_bound) {
+            t_bound = ceil(y);
+        }
+        if (y < b_bound) {
+            b_bound = floor(y);
+        }
+    }
+
+    // 为了MSAA，一次循环用来算颜色，存进map里, 算出来的颜色仍然需要关心z-buffer
+    for (int i = l_bound; i <= r_bound; i++) {
+        for (int j = b_bound; j <= t_bound; j++) {
+            if (insideTriangle(i, j, &v[0])) {
+                //If so, use the following code to get the interpolated z value.
+                auto[alpha, beta, gamma] = computeBarycentric2D(i, j, t.v);
+                
+                // std::cout << color;
+                float w_reciprocal = 1.0/(alpha / v[0].w() + beta / v[1].w() + gamma / v[2].w());
+                float z_interpolated = alpha * v[0].z() / v[0].w() + beta * v[1].z() / v[1].w() + gamma * v[2].z() / v[2].w();
+                z_interpolated *= w_reciprocal;
+                Point p (i, j);
+                if (z_buffer.find(p) == z_buffer.end() || z_buffer[p] >= z_interpolated) {
+                    Eigen::Vector3f interpolated_shadingcoords;
+                    interpolated_shadingcoords << i, j, z_interpolated;
+                    auto interpolated_color = alpha * t.color[0] * 255 + beta * t.color[1] * 255 + gamma * t.color[2] * 255;
+
+                    auto interpolated_texcoords = alpha * t.tex_coords[0] + beta * t.tex_coords[1] + gamma * t.tex_coords[2];
+                    auto interpolated_normal = alpha * t.normal[0] + beta * t.normal[1] + gamma * t.normal[2];
+                    auto texture = rst::rasterizer::texture;
+                    fragment_shader_payload payload(interpolated_color, interpolated_normal.normalized(), interpolated_texcoords, texture ? &*texture : nullptr);
+
+                    payload.view_pos = interpolated_shadingcoords;
+                    auto pixel_color = fragment_shader(payload);
+                    Eigen::Vector2i position (i, j);
+                    set_pixel(position, pixel_color);
+                    //std::cout << pixel_color[0] << " " << pixel_color[1] << " " << pixel_color[2] << std::endl;
+                    //color_map[p] = color;
+                    z_buffer[p] = z_interpolated;
+                }
+            }
+        }
+    }
+
+    // 暂时不考虑MSAA， 先做最简单版本
+    // std::map<std::pair<float, float>, Eigen::Vector3f> global_color_map;
+    // // 汇总颜色, 不需要关心z-buffer
+    // for (auto it = color_map.begin(); it != color_map.end(); it++) {
+    //     auto point = it->first;
+    //     auto color = it->second;
+    //     auto father_point = belong_to(point);
+    //     auto new_point_it = global_color_map.find(father_point);
+    //     if (new_point_it != global_color_map.end()) {
+    //         auto part_color = color * 0.25 ;
+    //         new_point_it->second += (part_color);
+    //     } else {
+    //         std::pair<std::pair<float, float>, Eigen::Vector3f> item (father_point, color * 0.25);
+    //         global_color_map.insert(item);
+    //     }
+    // }
+
+    // for (auto it = global_color_map.begin(); it != global_color_map.end(); it++) {
+    //     float x, y;
+    //     x = it->first.first;
+    //     y = it->first.second;
+    //     Eigen::Vector3f point;
+    //     point << x, y, 1;
+    //     set_pixel(point, it->second);
+    // }
+    
 
  
 }

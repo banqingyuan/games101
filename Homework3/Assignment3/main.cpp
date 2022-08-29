@@ -50,7 +50,23 @@ Eigen::Matrix4f get_model_matrix(float angle)
 Eigen::Matrix4f get_projection_matrix(float eye_fov, float aspect_ratio, float zNear, float zFar)
 {
     // TODO: Use the same projection matrix from the previous assignments
+    Eigen::Matrix4f projection = Eigen::Matrix4f::Identity();
 
+    // TODO: Implement this function
+    // Create the projection matrix for the given parameters.
+    // Then return it.
+    // Eigen::Matrix4f persp2ortho;
+
+    // persp2ortho << zNear, 0, 0, 0, 0, zNear, 0, 0, 0, 0, zNear + zFar, - (zNear * zFar), 0, 0, 1, 0;
+
+    Eigen::Matrix4f oneStep;
+    float tan_fov = std::tanf(eye_fov/2);
+    oneStep << 1/tan_fov, 0, 0, 0,
+                0, 1/tan_fov, 0, 0,
+                0, 0, (zNear + zFar)/(zNear - zFar), - (2 * zNear * zFar)/(zNear - zFar),
+                0, 0, 1, 0;
+    projection = oneStep * projection;
+    return projection;
 }
 
 Eigen::Vector3f vertex_shader(const vertex_shader_payload& payload)
@@ -83,16 +99,22 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
     Eigen::Vector3f return_color = {0, 0, 0};
     if (payload.texture)
     {
+        float u, v;
+        u = payload.tex_coords[0];
+        v = payload.tex_coords[1];
+        return_color = payload.texture->getColor(u, v);
+        // std::cout << return_color << std::endl;
         // TODO: Get the texture value at the texture coordinates of the current fragment
 
     }
     Eigen::Vector3f texture_color;
     texture_color << return_color.x(), return_color.y(), return_color.z();
+    auto now_color = payload.color;
 
     Eigen::Vector3f ka = Eigen::Vector3f(0.005, 0.005, 0.005);
     Eigen::Vector3f kd = texture_color / 255.f;
     Eigen::Vector3f ks = Eigen::Vector3f(0.7937, 0.7937, 0.7937);
-
+    // std::cout << kd;
     auto l1 = light{{20, 20, 20}, {500, 500, 500}};
     auto l2 = light{{-20, 20, 0}, {500, 500, 500}};
 
@@ -108,13 +130,26 @@ Eigen::Vector3f texture_fragment_shader(const fragment_shader_payload& payload)
 
     Eigen::Vector3f result_color = {0, 0, 0};
 
-    for (auto& light : lights)
-    {
+    Eigen::Vector3f la (ka[0] * amb_light_intensity[0], ka[1] * amb_light_intensity[1], ka[2] * amb_light_intensity[2]);
+    result_color = la;
+    for (auto& light : lights) {
         // TODO: For each light source in the code, calculate what the *ambient*, *diffuse*, and *specular* 
         // components are. Then, accumulate that result on the *result_color* object.
+        auto length = pow((light.position[0] - payload.view_pos[0])/10., 2) + pow((light.position[1] - payload.view_pos[1])/10., 2) + pow((light.position[2] - payload.view_pos[2])/10., 2);
+        auto h_vec = (eye_pos + light.position).normalized();
+        Eigen::Vector3f ls_temp = (light.intensity / length) * std::max(0., pow(double(payload.normal.dot(h_vec)), p));
+        Eigen::Vector3f ls (ks[0] * ls_temp[0], ks[1] * ls_temp[1], ks[2] * ls_temp[2]);
 
+        Eigen::Vector3f ld_temp = (light.intensity / length) * std::max(0., double(payload.normal.dot(light.position.normalized())));
+        Eigen::Vector3f ld (kd[0] * ld_temp[0], kd[1] * ld_temp[1], kd[2] * ld_temp[2]);
+
+        result_color += ls + ld;
+        //std::cout << ls[0] * 255.f << " " << ls[1] * 255.f << " " << ls[2] * 255.f << std::endl;
+        std::cout << length << std::endl;
+        //std::cout << la[0] * 255.f << " " << la[1] * 255.f << " " << la[2] * 255.f << std::endl;
+        std::cout << std::endl;
     }
-
+    //std::cout << result_color[0] * 255.f << " " << result_color[1] * 255.f << " " << result_color[2] * 255.f << std::endl;
     return result_color * 255.f;
 }
 
